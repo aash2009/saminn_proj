@@ -41,11 +41,10 @@ export const BLANK = {
   website: '',
   serves: null,
   needs: [],
-  situations: [],
+  targetPopulations: [],
+  acceptedIncomes: [],
+  requirementsByTag: {},
   priority: 50, // sorts after the built-in entries inside a category
-  // Optional Spanish wording for this entry. Without it the sheet falls back
-  // to the English text and flags it, rather than printing nothing.
-  es: null,
 }
 
 const str = (v) => (typeof v === 'string' ? v.trim() : '')
@@ -90,6 +89,15 @@ export function normalize(raw, index = 0) {
         }
       : null
 
+  const requirementsByTag =
+    raw?.requirementsByTag && typeof raw.requirementsByTag === 'object'
+      ? Object.fromEntries(
+          Object.entries(raw.requirementsByTag)
+            .map(([k, v]) => [k, str(v)])
+            .filter(([, v]) => v)
+        )
+      : {}
+
   return {
     ...BLANK,
     id: str(raw?.id) || slug(raw?.name) + '-' + index,
@@ -110,26 +118,11 @@ export function normalize(raw, index = 0) {
     website: str(raw?.website),
     serves,
     needs: list(raw?.needs),
-    situations: list(raw?.situations),
+    targetPopulations: list(raw?.targetPopulations),
+    acceptedIncomes: list(raw?.acceptedIncomes),
+    requirementsByTag,
     priority: Number.isFinite(Number(raw?.priority)) ? Number(raw.priority) : 50,
-    es: normalizeEs(raw?.es),
   }
-}
-
-// Only keep the Spanish block if something was actually typed into it.
-function normalizeEs(raw) {
-  if (!raw) return null
-  const es = {
-    what: str(raw.what),
-    say: str(raw.say),
-    hours: str(raw.hours),
-    notes: str(raw.notes),
-    steps: list(raw.steps),
-    bring: list(raw.bring),
-  }
-  const hasAny =
-    es.what || es.say || es.hours || es.notes || es.steps.length || es.bring.length
-  return hasAny ? es : null
 }
 
 export function loadCustom() {
@@ -198,7 +191,7 @@ export function validate(draft, allIds = []) {
   const warnings = []
 
   if (!str(draft.name)) errors.push('It needs a name.')
-  if (!draft.needs?.length && !draft.situations?.length) {
+  if (!draft.needs?.length && !draft.targetPopulations?.length) {
     errors.push(
       'Tick at least one box under "When should this show up?" — otherwise it will never appear on anyone\'s sheet.'
     )
@@ -227,8 +220,10 @@ export function validate(draft, allIds = []) {
   return { errors, warnings, ok: errors.length === 0 }
 }
 
-// Look up a street address with OpenStreetMap. Optional -- an entry without
-// coordinates still prints fine, it just gets no map pin.
+// Look up a street address with OpenStreetMap's own free geocoder. This is
+// separate from geocode.js (which uses LocationIQ through the backend for
+// the client-facing "where do you usually spend time" question) -- this one
+// needs no API key, so it's fine to call directly from the browser here.
 export async function geocode(address) {
   const url =
     'https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=us&q=' +
@@ -274,8 +269,12 @@ export function toCodeSnippet(r) {
       )}, area: ${q(r.serves.area)} },`
     )
   }
+  if (r.acceptedIncomes?.length) lines.push(`    acceptedIncomes: ${JSON.stringify(r.acceptedIncomes)},`)
+  if (r.requirementsByTag && Object.keys(r.requirementsByTag).length) {
+    lines.push(`    requirementsByTag: ${JSON.stringify(r.requirementsByTag)},`)
+  }
   lines.push(`    needs: ${JSON.stringify(r.needs)},`)
-  lines.push(`    situations: ${JSON.stringify(r.situations)},`)
+  lines.push(`    targetPopulations: ${JSON.stringify(r.targetPopulations)},`)
   lines.push(`    priority: ${r.priority},`)
   lines.push('  },')
   return lines.join('\n')
