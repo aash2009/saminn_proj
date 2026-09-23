@@ -3,54 +3,40 @@
 //
 // It holds three kinds of thing:
 //
-//   1. The answer choices on the form (NEEDS, SITUATIONS, RESIDENCES)
+//   1. The answer choices on the form (NEEDS, IDENTITIES, INCOME_OPTIONS,
+//      RESIDENCES)
 //   2. The list of places that can help (RESOURCES)
 //   3. The rules that decide which places match (matchResources)
 //
-// FACTS LIVE HERE, WORDS LIVE ELSEWHERE. English wording is here because it
-// is the source of truth; the Spanish version of each entry is in
-// resources.es.js, keyed by the same `id`. Phone numbers, addresses, and map
-// coordinates exist in exactly one place -- here -- so the two languages can
-// never disagree about a fact.
+// FACTS LIVE HERE. Phone numbers, addresses, and map coordinates exist in
+// exactly one place -- here.
 //
 // THE IDS ARE MACHINE VALUES. `needs: ['food']` matches the checkbox whose
-// id is 'food'. Those strings are never translated and never shown to
-// anyone. Change a label freely; changing an id means updating every
-// resource that uses it.
+// id is 'food'. Those strings are never shown to anyone. Change a label
+// freely; changing an id means updating every resource that uses it.
 //
-// A RESOURCE WITH EMPTY `needs` AND EMPTY `situations` WILL NEVER APPEAR on
-// anyone's sheet. That is the most common mistake when adding one.
+// A RESOURCE WITH EMPTY `needs` AND EMPTY `targetPopulations` WILL NEVER
+// APPEAR on anyone's sheet. That is the most common mistake when adding one.
 //
 // See GUIDE.md for a worked example of adding a resource.
 // ===========================================================================
 
-// Community resource data for The Samaritan Inn, McKinney TX.
-//
-// EVERY phone number and address here was taken from the organization's own
-// website or a public directory in August 2026. Sources are listed in
-// SOURCES.md. Hours change often -- see VERIFIED_ON and the "call ahead"
-// notice that gets printed on every sheet.
-//
-// `coords` came from OpenStreetMap geocoding and is used to draw the map.
-//
-// To edit this list you only need to change this file. Nothing else.
+import { t } from './i18n.js'
 
-import { COMPASS_ES, t } from './i18n.js'
-
-// Stored as a plain date so it can be printed in whichever language the sheet
-// is in. Update this whenever someone re-checks the phone numbers.
+// Stored as a plain date. Update this whenever someone re-checks the phone
+// numbers.
 export const VERIFIED_ON_ISO = '2026-08-05'
 
-export function verifiedOn(lang = 'en') {
+export function verifiedOn() {
   const [y, m, d] = VERIFIED_ON_ISO.split('-').map(Number)
-  return new Date(y, m - 1, d).toLocaleDateString(lang === 'es' ? 'es-US' : 'en-US', {
+  return new Date(y, m - 1, d).toLocaleDateString('en-US', {
     year: 'numeric',
     month: 'long',
     day: 'numeric',
   })
 }
 
-export const VERIFIED_ON = verifiedOn('en')
+export const VERIFIED_ON = verifiedOn()
 
 export const HOME_BASE = {
   name: 'The Samaritan Inn',
@@ -59,21 +45,39 @@ export const HOME_BASE = {
   coords: { lat: 33.218507, lon: -96.612044 },
 }
 
-// The questions on screen. `id` values are what resources match against.
-export const SITUATIONS = [
+// Background/identity checkboxes. Used two ways: to match a resource's
+// `targetPopulations`, and (for `homeless`) to decide whether to ask for a
+// location and show the McKinney map.
+export const IDENTITIES = [
+  { id: 'homeless', label: 'Unhoused / no place to stay' },
+  { id: 'youth', label: 'Young person (under 24)' },
+  { id: 'family', label: 'Has children or dependents' },
+  { id: 'pregnant', label: 'Pregnant individual' },
   { id: 'senior', label: 'Senior (60 or older)' },
-  { id: 'safety', label: 'Unsafe at home / abuse' },
-  { id: 'family', label: 'Has children with them' },
-  { id: 'veteran', label: 'Veteran' },
-  { id: 'youth', label: 'Young person under 22' },
-  { id: 'disability', label: 'Has a disability' },
-  { id: 'homeless', label: 'No place to stay tonight' },
+  { id: 'veteran', label: 'Military veteran' },
+  { id: 'disability', label: 'Has a physical or mental disability' },
+  { id: 'lgbtq', label: 'LGBTQ+ community member' },
+  { id: 'immigrant', label: 'Immigrant, refugee, or non-native English speaker' },
+  { id: 'muslim', label: 'Muslim' },
+  { id: 'woman', label: "Women's services" },
+]
+
+export const INCOME_OPTIONS = [
+  { id: 'zero', label: 'Zero income / no earnings right now' },
+  { id: 'low', label: 'Under $1,500 per month' },
+  { id: 'moderate', label: '$1,500 – $3,000 per month' },
+  { id: 'higher', label: 'Over $3,000 per month' },
+  { id: 'unknown', label: 'Prefer not to say / not sure' },
 ]
 
 export const NEEDS = [
   { id: 'food', label: 'Food' },
+  { id: 'sobriety/recovery', label: 'Alcoholism help' },
+  { id: 'job', label: 'Employment help' },
+  { id: 'safety', label: 'Safety from abuse' },
   { id: 'shelter', label: 'A place to stay' },
   { id: 'rentutility', label: 'Help with rent or bills' },
+  { id: 'housing', label: 'General housing help' },
   { id: 'medical', label: 'A doctor' },
   // Split from 'medical': the old combined "Doctor or dentist" box returned
   // only primary-care clinics, so anyone with a bad tooth got a sheet with no
@@ -89,8 +93,10 @@ export const NEEDS = [
 
 // Where the person lives. Several places serve only certain areas, so asking
 // this stops the sheet sending someone to a clinic that will turn them away.
+// 'mckinney' is also the only value that can trigger the homeless-location
+// map -- see App.jsx.
 export const RESIDENCES = [
-  { id: 'unknown', label: "Not sure, or no address right now" },
+  { id: 'unknown', label: 'Not sure, or no address right now' },
   { id: 'mckinney', label: 'McKinney' },
   { id: 'collin', label: 'Somewhere else in Collin County' },
   { id: 'plano', label: 'Plano' },
@@ -128,9 +134,14 @@ export const RESOURCES = [
       'Any paperwork about money you receive',
     ],
     notes: 'Not having ID does not disqualify you. Come and ask.',
+    acceptedIncomes: ['zero', 'low', 'unknown'],
+    // TODO: confirm with Samaritan Inn staff whether veterans need anything
+    // beyond the standard intake list (e.g. DD-214, VA liaison) before
+    // adding a note here.
+    requirementsByTag: {},
     website: 'saminn.org',
     needs: ['shelter'],
-    situations: ['homeless', 'family'],
+    targetPopulations: ['homeless', 'family'],
     priority: 1,
   },
   {
@@ -158,7 +169,7 @@ export const RESOURCES = [
     website: 'saminn.org/food-pantry',
     serves: { excludeCities: ['plano', 'wylie'], area: 'North Collin County towns only' },
     needs: ['food'],
-    situations: [],
+    targetPopulations: [],
     priority: 2,
   },
   {
@@ -180,7 +191,7 @@ export const RESOURCES = [
     notes: '',
     website: 'mckinneyfoodpantry.org',
     needs: ['food'],
-    situations: [],
+    targetPopulations: [],
     priority: 3,
   },
   {
@@ -202,7 +213,7 @@ export const RESOURCES = [
     notes: 'Suite 102 — same street as the Samaritan Inn food pantry. Check the suite number so you go to the right door.',
     website: 'communitylifeline.org',
     needs: ['food', 'rentutility'],
-    situations: [],
+    targetPopulations: [],
     priority: 4,
   },
   {
@@ -226,8 +237,8 @@ export const RESOURCES = [
     bring: ['Nothing. You only need a phone.'],
     notes: 'You do not have to leave home to get help from them. They serve all of Collin County.',
     website: 'hdnbc.org',
-    needs: ['shelter'],
-    situations: ['safety'],
+    needs: ['shelter', 'safety'],
+    targetPopulations: [],
     priority: 1,
   },
   {
@@ -247,8 +258,8 @@ export const RESOURCES = [
     bring: ['Nothing. You only need a phone.'],
     notes: 'Clear your call and text history afterward if someone checks your phone.',
     website: 'thehotline.org',
-    needs: [],
-    situations: ['safety'],
+    needs: ['safety'],
+    targetPopulations: [],
     priority: 2,
   },
   {
@@ -276,7 +287,7 @@ export const RESOURCES = [
     notes: 'This is the county mental health office for Collin County.',
     website: 'lifepathsystems.org',
     needs: ['mental'],
-    situations: [],
+    targetPopulations: [],
     priority: 1,
   },
   {
@@ -309,7 +320,7 @@ export const RESOURCES = [
     website: 'assistancecenter.org',
     serves: { collinOnly: true, area: 'Collin County residents only' },
     needs: ['rentutility'],
-    situations: [],
+    targetPopulations: [],
     priority: 1,
   },
   {
@@ -329,9 +340,11 @@ export const RESOURCES = [
     ],
     bring: ['Photo ID', 'The bills you need help with', 'Proof of income'],
     notes: '',
+    // TODO: confirm whether veterans get anything beyond the standard list.
+    requirementsByTag: {},
     website: 'salvationarmyntx.org',
     needs: ['food', 'rentutility', 'clothing'],
-    situations: [],
+    targetPopulations: [],
     priority: 5,
   },
   {
@@ -353,14 +366,14 @@ export const RESOURCES = [
     notes: '',
     website: 'saminn.org',
     needs: ['clothing'],
-    situations: [],
+    targetPopulations: [],
     priority: 6,
   },
   {
     id: 'community-health-clinic',
     name: 'Community Health Clinic',
     category: 'Medical',
-    what: 'Free doctor visits for adults and children with no insurance. Check-ups, diabetes, asthma, women\'s exams, school physicals, and help getting medicine.',
+    what: "Free doctor visits for adults and children with no insurance. Check-ups, diabetes, asthma, women's exams, school physicals, and help getting medicine.",
     address: '4510 Medical Center Dr., Suite 204, McKinney, TX 75069',
     coords: { lat: 33.172562, lon: -96.637201, approximate: true },
     phone: '(972) 547-0606',
@@ -384,8 +397,11 @@ export const RESOURCES = [
       excludeCities: ['plano', 'wylie'],
       area: 'Northern Collin County only - not Plano or Wylie',
     },
+    // TODO: confirm what counts as acceptable proof of income for someone
+    // paid in cash / without standard pay stubs before adding a note here.
+    requirementsByTag: {},
     needs: ['medical'],
-    situations: [],
+    targetPopulations: [],
     priority: 1,
   },
   {
@@ -410,8 +426,9 @@ export const RESOURCES = [
     notes: 'No dental here.',
     website: 'healthservicesntx.org',
     serves: { collinOnly: true, area: 'Collin County residents' },
+    requirementsByTag: {},
     needs: ['medical'],
-    situations: [],
+    targetPopulations: [],
     priority: 3,
   },
   {
@@ -437,8 +454,9 @@ export const RESOURCES = [
     ],
     notes: 'This is the main place in McKinney for adult dental work - fillings, pulling teeth, and dentures. They see you with or without insurance.',
     website: 'fhcntx.org',
+    requirementsByTag: {},
     needs: ['medical', 'dental'],
-    situations: [],
+    targetPopulations: [],
     priority: 1,
   },
   {
@@ -461,7 +479,7 @@ export const RESOURCES = [
     notes: 'IMPORTANT: cleanings and gum care only. They do NOT do fillings, pull teeth, or make dentures. If a tooth hurts or is broken, call Family Health Center on Virginia instead.',
     website: 'collin.edu/dentalhygiene',
     needs: ['dental'],
-    situations: [],
+    targetPopulations: [],
     priority: 3,
   },
   {
@@ -484,15 +502,16 @@ export const RESOURCES = [
     notes: 'No dental here, but they do cover eye care and glasses. Used to be called Hope Clinic of McKinney.',
     website: 'commongoodmedical.org',
     serves: { collinOnly: true, area: 'Collin County residents only' },
+    requirementsByTag: {},
     needs: ['medical'],
-    situations: [],
+    targetPopulations: [],
     priority: 2,
   },
   {
     id: 'hrm-bridge',
     name: 'Hope Restored Missions - Bridge to Hope',
     category: 'ID & papers',
-    what: 'Help replacing the papers you need before anyone else can help you: birth certificate, Social Security card, and driver\'s license. They also make temporary photo IDs.',
+    what: "Help replacing the papers you need before anyone else can help you: birth certificate, Social Security card, and driver's license. They also make temporary photo IDs.",
     address: '1947 K Ave., Plano, TX 75074',
     coords: { lat: 33.027612, lon: -96.698986 },
     phone: '(214) 501-2181',
@@ -506,12 +525,15 @@ export const RESOURCES = [
     ],
     bring: [
       'Any papers you still have, even expired ones',
-      'Anything you remember: your date of birth, where you were born, your parents\' names',
+      "Anything you remember: your date of birth, where you were born, your parents' names",
     ],
     notes: 'They are the only agency in Collin County that issues a temporary photo ID. Getting your papers back usually unlocks housing, benefits, and work.',
     website: 'hoperestoredmissions.org/bridge',
+    // TODO: confirm whether a foreign passport / Matrícula Consular is
+    // accepted here in place of a U.S.-issued ID before adding a note.
+    requirementsByTag: {},
     needs: ['id'],
-    situations: ['homeless'],
+    targetPopulations: ['homeless'],
     priority: 1,
   },
   {
@@ -537,7 +559,7 @@ export const RESOURCES = [
     notes: 'Young people under 18 can do this without a parent signing or even knowing. Ask staff here to help - this is a normal thing for them to sign.',
     website: 'dshs.texas.gov/vital-statistics',
     needs: ['id'],
-    situations: ['homeless', 'youth'],
+    targetPopulations: ['homeless', 'youth'],
     priority: 2,
   },
   {
@@ -568,8 +590,11 @@ export const RESOURCES = [
     ],
     notes: 'Do not wait. Legal deadlines are short and missing one can cost you the case.',
     website: 'legalaidtx.org',
+    // TODO: confirm interpreter availability and whether they handle
+    // immigration matters at all (many legal aid orgs refer these out).
+    requirementsByTag: {},
     needs: ['legal'],
-    situations: [],
+    targetPopulations: [],
     priority: 1,
   },
   {
@@ -592,7 +617,7 @@ export const RESOURCES = [
     notes: 'Suggested donation for age 60 and older. Ask about it — nobody is turned away.',
     website: 'cccoaweb.org',
     needs: ['food'],
-    situations: ['senior'],
+    targetPopulations: ['senior'],
     priority: 1,
   },
   {
@@ -621,7 +646,7 @@ export const RESOURCES = [
       area: 'McKinney, Celina, Lowry Crossing, Melissa, Princeton, Prosper',
     },
     needs: ['transport'],
-    situations: ['senior', 'disability'],
+    targetPopulations: ['senior', 'disability'],
     priority: 1,
   },
   {
@@ -646,7 +671,7 @@ export const RESOURCES = [
     notes: '',
     website: 'cityhouse.org',
     needs: ['shelter'],
-    situations: ['youth'],
+    targetPopulations: ['youth'],
     priority: 1,
   },
   {
@@ -674,14 +699,14 @@ export const RESOURCES = [
     notes: '',
     website: 'collincountytx.gov',
     needs: [],
-    situations: ['veteran'],
+    targetPopulations: ['veteran'],
     priority: 1,
   },
   {
     id: 'benefits-211',
     name: 'Your Texas Benefits (through 2-1-1)',
     category: 'Food stamps & Medicaid',
-    what: 'Apply for SNAP (food stamps), Medicaid, CHIP children\'s insurance, and TANF cash help.',
+    what: "Apply for SNAP (food stamps), Medicaid, CHIP children's insurance, and TANF cash help.",
     address: 'Apply by phone or online at YourTexasBenefits.com',
     phone: '211',
     altPhone: '(877) 541-7905',
@@ -703,7 +728,7 @@ export const RESOURCES = [
     notes: 'Free. Nobody should ever charge you to apply for these benefits.',
     website: 'YourTexasBenefits.com',
     needs: ['benefits', 'food'],
-    situations: [],
+    targetPopulations: [],
     priority: 2,
   },
 ]
@@ -712,10 +737,6 @@ export const RESOURCES = [
 // Helpers
 // ---------------------------------------------------------------------------
 
-// Builds a Google Maps link that gives real turn-by-turn directions from The
-// Samaritan Inn to the resource. We do not write out driving directions by
-// hand -- guessing street turns would be worse than useless for someone
-// standing at a bus stop.
 export function directionsUrl(resource) {
   if (!resource.address || !/\d/.test(resource.address)) return null
   return (
@@ -728,19 +749,24 @@ export function directionsUrl(resource) {
 
 const MILES_PER_DEG_LAT = 69.0
 
-// Convert a lat/lon into miles east/north of The Samaritan Inn. Flat-earth
-// approximation, which is accurate to well under a percent across a county.
+// Convert a lat/lon into miles east/north of The Samaritan Inn. Used for the
+// general "about X miles from the Inn" text shown for every resource.
 export function offsetMiles(coords) {
-  if (!coords) return null
-  const lat0 = (HOME_BASE.coords.lat * Math.PI) / 180
+  return offsetMilesFrom(HOME_BASE.coords, coords)
+}
+
+// Same thing, but from any origin -- used for the McKinney homeless-location
+// map, which centers on wherever that person said they usually are, not the
+// Inn.
+export function offsetMilesFrom(origin, coords) {
+  if (!coords || !origin) return null
+  const lat0 = (origin.lat * Math.PI) / 180
   return {
-    east: (coords.lon - HOME_BASE.coords.lon) * MILES_PER_DEG_LAT * Math.cos(lat0),
-    north: (coords.lat - HOME_BASE.coords.lat) * MILES_PER_DEG_LAT,
+    east: (coords.lon - origin.lon) * MILES_PER_DEG_LAT * Math.cos(lat0),
+    north: (coords.lat - origin.lat) * MILES_PER_DEG_LAT,
   }
 }
 
-// Pulls "McKinney" out of "1601 N. Waddill St., McKinney, TX 75069" so the map
-// can label each cluster of pins with the town it is in.
 export function cityOf(address) {
   if (!address) return null
   const m = address.match(/,\s*([A-Za-z][A-Za-z .'-]*?),\s*TX/)
@@ -749,28 +775,20 @@ export function cityOf(address) {
 
 const COMPASS = ['north', 'northeast', 'east', 'southeast', 'south', 'southwest', 'west', 'northwest']
 
-// "about 1.2 miles southwest" -- straight line, not driving distance.
-// Built from the phrase table so Spanish reads "a unas 1.2 millas al suroeste"
-// rather than English word order with Spanish words dropped in.
-export function distanceLabel(resource, lang = 'en') {
+// "about 1.2 miles southwest" of the Inn -- straight line, not driving
+// distance. Shown for every resource regardless of residence/identity.
+export function distanceLabel(resource) {
   const off = offsetMiles(resource.coords)
   if (!off) return null
   const miles = Math.hypot(off.east, off.north)
-  if (miles < 0.1) return t(lang, 'youAreHereShort')
+  if (miles < 0.1) return t('youAreHereShort')
   const angle = (Math.atan2(off.east, off.north) * 180) / Math.PI
   const dir = COMPASS[Math.round(((angle + 360) % 360) / 45) % 8]
   const rounded = miles < 10 ? miles.toFixed(1) : Math.round(miles)
   const singular = miles < 1.05 && miles >= 0.95
-  return t(lang, 'aboutMiles', {
-    n: rounded,
-    unit: t(lang, singular ? 'pdfMile' : 'pdfMiles'),
-    dir: lang === 'es' ? COMPASS_ES[dir] : dir,
-  })
+  return t('aboutMiles', { n: rounded, unit: t(singular ? 'pdfMile' : 'pdfMiles'), dir })
 }
 
-// Would this place actually serve someone who lives here? Answering "not sure"
-// hides nothing -- it is better to print an extra place than to silently drop
-// one because we guessed wrong about where the person lives.
 export function servesResident(resource, residence) {
   const s = resource.serves
   if (!s || !residence || residence === 'unknown') return true
@@ -780,7 +798,7 @@ export function servesResident(resource, residence) {
 }
 
 // Picks the resources that match what the case worker checked off.
-// A resource is included when it matches ANY selected need or situation, and
+// A resource is included when it matches ANY selected need or identity, and
 // the person is not obviously ineligible for it.
 //
 // Returns both lists: `excluded` is shown on screen so staff can see what was
@@ -790,12 +808,13 @@ export function servesResident(resource, residence) {
 // added through Staff Tools.
 export function matchResources(
   selectedNeeds,
-  selectedSituations,
+  selectedIdentities = [],
+  estimatedIncome = 'unknown',
   residence = 'unknown',
   pool = RESOURCES
 ) {
   const needs = new Set(selectedNeeds)
-  const situations = new Set(selectedSituations)
+  const identities = new Set(selectedIdentities)
 
   const byCategory = (a, b) => {
     if (a.category !== b.category) return a.category.localeCompare(b.category)
@@ -804,9 +823,19 @@ export function matchResources(
 
   const hits = pool.filter((r) => {
     const needHit = r.needs.some((n) => needs.has(n))
-    const situationHit = r.situations.some((s) => situations.has(s))
-    return needHit || situationHit
+    const identityHit = r.targetPopulations.some((p) => identities.has(p))
+    return needHit || identityHit
   })
+
+  // ---------------------------------------------------------------------
+  // YOUR WEIGHTING/OPTIMIZATION GOES HERE.
+  // `hits`, `identities` (Set), and `estimatedIncome` (string) are all in
+  // scope. Reassign `hits` to whatever ordered/scored array you produce --
+  // everything below just needs `hits` to still be an array of resources.
+  // Fields already on each resource object for you to use:
+  //   r.acceptedIncomes    -- array of income ids
+  //   r.targetPopulations  -- array of identity ids
+  // ---------------------------------------------------------------------
 
   return {
     resources: hits.filter((r) => servesResident(r, residence)).sort(byCategory),
