@@ -1,23 +1,3 @@
-// ===========================================================================
-// App.jsx -- the whole screen the front desk uses.
-//
-// NEW TO REACT? Read GUIDE.md in the project root first. The short version:
-//
-//   * A "component" is a function that returns markup (JSX). React calls it
-//     to work out what to put on screen.
-//   * That markup looks like HTML but is JavaScript. `className` instead of
-//     `class`, and `{ }` drops a JavaScript value into the markup.
-//   * "State" is a value that, when it changes, makes React re-run the
-//     component and redraw. You create it with useState.
-//   * You never reach into the page to change it (no document.getElementById).
-//     You change state, and React updates the screen for you.
-//
-// This file has three components:
-//   ChoiceGrid -- a grid of big check-all-that-apply buttons
-//   PickOne    -- the same, but only one can be chosen at a time
-//   App        -- everything else, and the only one that holds state
-// ===========================================================================
-
 import { useMemo, useState } from 'react'
 import {
   EMERGENCY,
@@ -33,23 +13,14 @@ import {
 } from './resources.js'
 import { downloadResourceSheet, printResourceSheet } from './pdf.js'
 import { effectiveResources, loadCustom, loadOverrides } from './customResources.js'
+import { geocode } from './geocode.js'
+import { recordNeeds } from './needsStats.js'
 import AdminPanel from './AdminPanel.jsx'
-import { LANGUAGES, label as tLabel, localizeEmergency, localizeResource, t } from './i18n.js'
+import { t } from './i18n.js'
 
-// ---------------------------------------------------------------------------
-// ChoiceGrid: "check all that apply"
-//
-// The values in the curly braces of the function signature are "props" --
-// values the parent passes in. This component holds no state of its own; it
-// shows what it is given and calls onToggle when a button is pressed. That
-// keeps every piece of state in one place (App), which makes bugs much easier
-// to find.
-// ---------------------------------------------------------------------------
 function ChoiceGrid({ options, selected, onToggle, name }) {
   return (
     <div className="grid" role="group" aria-label={name}>
-      {/* .map turns an array of options into an array of buttons. React needs
-          a unique `key` on each one so it can tell them apart when redrawing. */}
       {options.map((opt) => {
         const isOn = selected.includes(opt.id)
         return (
@@ -57,8 +28,6 @@ function ChoiceGrid({ options, selected, onToggle, name }) {
             key={opt.id}
             type="button"
             className={isOn ? 'choice on' : 'choice'}
-            // aria-pressed tells a screen reader this is a toggle and whether
-            // it is currently on.
             aria-pressed={isOn}
             onClick={() => onToggle(opt.id)}
           >
@@ -73,9 +42,6 @@ function ChoiceGrid({ options, selected, onToggle, name }) {
   )
 }
 
-// ---------------------------------------------------------------------------
-// PickOne: same look, but only one choice at a time (a radio group).
-// ---------------------------------------------------------------------------
 function PickOne({ options, value, onChange, name }) {
   return (
     <div className="grid" role="radiogroup" aria-label={name}>
@@ -101,21 +67,12 @@ function PickOne({ options, value, onChange, name }) {
   )
 }
 
-// ---------------------------------------------------------------------------
-// App: the screen itself.
-// ---------------------------------------------------------------------------
 export default function App() {
-  // -- STATE ----------------------------------------------------------------
-  // useState gives you [currentValue, functionToChangeIt]. Calling the setter
-  // asks React to redraw with the new value. Never assign to these directly.
+  // English only now -- kept as a plain constant (rather than removing every
+  // T(...) call) so t() calls everywhere else stay untouched.
+  const lang = 'en'
 
-  // Which screen is showing: the form, the results, or Staff Tools.
   const [screen, setScreen] = useState('form')
-
-  // Language is the FIRST question because it changes everything after it:
-  // this screen and the printed sheet.
-  const [lang, setLang] = useState('en')
-
   const [identities, setIdentities] = useState([])
   const [estimatedIncome, setEstimatedIncome] = useState('unknown')
   const [firstName, setFirstName] = useState('')
@@ -123,84 +80,71 @@ export default function App() {
   const [needs, setNeeds] = useState([])
   const [notes, setNotes] = useState('')
 
-  // Bumped whenever Staff Tools saves, which rebuilds the resource pool below.
+  // Only ever used for the McKinney + homeless map.
+  const [locationQuery, setLocationQuery] = useState('')
+  const [userCoords, setUserCoords] = useState(null)
+  const [locating, setLocating] = useState(false)
+
   const [libraryVersion, setLibraryVersion] = useState(0)
 
-  // -- DERIVED VALUES -------------------------------------------------------
-  // useMemo remembers a result and only recalculates when something in the
-  // list at the end (the "dependencies") changes. It is a speed optimisation;
-  // the code would still be correct without it.
-
-  // Every resource the app knows about: the built-in ones with any staff edits
-  // applied, plus anything staff added themselves.
   const pool = useMemo(() => effectiveResources(loadOverrides(), loadCustom()), [libraryVersion])
 
-  // The places that match what was ticked. `excluded` is the ones dropped
-  // because of where the person lives -- shown to staff so nothing disappears
-  // silently.
-const { resources, excluded } = useMemo(
+  const { resources, excluded } = useMemo(
     () => matchResources(needs, identities, estimatedIncome, residence, pool),
-[needs, identities, estimatedIncome, residence, pool]
+    [needs, identities, estimatedIncome, residence, pool]
   )
-  // Shorthand for looking up a piece of text in the current language.
-  const T = (key, vars) => t(lang, key, vars)
 
-  // Answer choices with translated labels. The `id` of each option never
-  // changes, so switching language cannot affect which resources match.
-  const localizedOptions = (kind, options) =>
-    options.map((o) => ({ ...o, label: tLabel(lang, kind, o.id, o.label) }))
+  const T = (key, vars) => t(key, vars)
 
-  const shownResources = useMemo(
-    () => resources.map((r) => localizeResource(r, lang)),
-    [resources, lang]
-  )
-  const shownEmergency = useMemo(() => localizeEmergency(EMERGENCY, lang), [lang])
+  const shownEmergency = EMERGENCY
 
-  const residenceLabel = tLabel(
-    lang,
-    'residences',
-    residence,
-    RESIDENCES.find((r) => r.id === residence)?.label ?? ''
-  )
+  const residenceLabel = RESIDENCES.find((r) => r.id === residence)?.label ?? ''
 
   const includeSafetyWarning = needs.includes('safety')
-const nothingPicked = needs.length === 0 && identities.length === 0
-  // Everything the PDF builder needs. Note it gets the ORIGINAL resources plus
-  // the language -- pdf.js does its own translating, so the two never disagree.
-const pdfOptions = {
-  firstName: firstName.trim(),
-  resources,
-  notes,
-  includeSafetyWarning,
-  identities,
-  lang,
-}
-  // -- EVENT HANDLERS -------------------------------------------------------
+  const nothingPicked = needs.length === 0 && identities.length === 0
 
-  // Returns a function that adds an id to a list, or removes it if it is
-  // already there. Used by both checkbox grids.
+  // Only true for McKinney residents who checked "homeless" AND successfully
+  // found a location. Everyone else gets no map at all -- not an empty one.
+  const showMap = residence === 'mckinney' && identities.includes('homeless') && userCoords !== null
+
+  const pdfOptions = {
+    firstName: firstName.trim(),
+    resources,
+    notes,
+    includeSafetyWarning,
+    identities,
+    showMap,
+    userCoords,
+  }
+
   const toggle = (list, setList) => (id) =>
     setList(list.includes(id) ? list.filter((x) => x !== id) : [...list, id])
 
-  const startOver = () => {
-  setFirstName('')
-  setResidence('unknown')
-  setNeeds([])
-  setIdentities([])
-  setEstimatedIncome('unknown')
-  setNotes('')
-  setScreen('form')
-  window.scrollTo(0, 0)
-}
+  const findMyLocation = async () => {
+    setLocating(true)
+    const coords = await geocode(locationQuery)
+    setUserCoords(coords) // null on failure or empty -- same as never having asked
+    setLocating(false)
+  }
 
-  const goToResults = () => {
-    setScreen('results')
+  const startOver = () => {
+    setFirstName('')
+    setResidence('unknown')
+    setNeeds([])
+    setIdentities([])
+    setEstimatedIncome('unknown')
+    setNotes('')
+    setLocationQuery('')
+    setUserCoords(null)
+    setScreen('form')
     window.scrollTo(0, 0)
   }
 
-  // -- WHAT GETS DRAWN ------------------------------------------------------
-  // Everything below is JSX. `{condition && <p>…</p>}` means "only show this
-  // if condition is true", and `{a ? x : y}` picks between two things.
+  const goToResults = () => {
+    recordNeeds(needs)
+    setScreen('results')
+    window.scrollTo(0, 0)
+  }
 
   return (
     <div className="page">
@@ -215,34 +159,14 @@ const pdfOptions = {
 
       <main className="wrap">
         {screen === 'admin' ? (
-          <AdminPanel
-            onClose={() => setScreen('form')}
-            // A prop can be a function. This is how a child tells its parent
-            // that something happened.
-            onChanged={() => setLibraryVersion((v) => v + 1)}
-          />
+          <AdminPanel onClose={() => setScreen('form')} onChanged={() => setLibraryVersion((v) => v + 1)} />
         ) : screen === 'form' ? (
           <>
             <p className="lede">{T('lede')}</p>
 
-            {/* Question 1: language. It comes first because it changes the
-                wording of every question below it. */}
             <section className="card">
               <h2>
-                <span className="step">1</span> {T('qLanguage')}
-              </h2>
-              <p className="help">{T('qLanguageHelp')}</p>
-              <PickOne
-                options={LANGUAGES}
-                value={lang}
-                onChange={setLang}
-                name={T('qLanguage')}
-              />
-            </section>
-
-            <section className="card">
-              <h2>
-                <span className="step">2</span> {T('qName')}
+                <span className="step">1</span> {T('qName')}
                 <span className="optional">{T('optional')}</span>
               </h2>
               <p className="help">{T('qNameHelp')}</p>
@@ -250,8 +174,6 @@ const pdfOptions = {
                 className="text-input"
                 type="text"
                 value={firstName}
-                // A "controlled input": the box shows whatever is in state,
-                // and typing updates state, which redraws the box.
                 onChange={(e) => setFirstName(e.target.value)}
                 placeholder={T('qNamePlaceholder')}
                 autoComplete="off"
@@ -260,66 +182,78 @@ const pdfOptions = {
 
             <section className="card">
               <h2>
-                <span className="step">3</span> {T('qResidence')}
+                <span className="step">2</span> {T('qResidence')}
               </h2>
               <p className="help">{T('qResidenceHelp')}</p>
+              <PickOne options={RESIDENCES} value={residence} onChange={setResidence} name={T('qResidence')} />
+            </section>
+
+            <section className="card">
+              <h2>
+                <span className="step">3</span> {T('qIncome')}
+                <span className="optional">{T('optional')}</span>
+              </h2>
+              <p className="help">{T('qIncomeHelp')}</p>
               <PickOne
-                options={localizedOptions('residences', RESIDENCES)}
-                value={residence}
-                onChange={setResidence}
-                name={T('qResidence')}
+                options={INCOME_OPTIONS}
+                value={estimatedIncome}
+                onChange={setEstimatedIncome}
+                name={T('qIncome')}
               />
             </section>
 
             <section className="card">
-  <h2>
-    <span className="step">4</span> {T('qIncome')}
-    <span className="optional">{T('optional')}</span>
-  </h2>
-  <p className="help">{T('qIncomeHelp')}</p>
-  <PickOne
-    options={localizedOptions('income', INCOME_OPTIONS)}
-    value={estimatedIncome}
-    onChange={setEstimatedIncome}
-    name={T('qIncome')}
-  />
-              
-</section>
+              <h2>
+                <span className="step">4</span> {T('qIdentities')}
+                <span className="optional">{T('optional')}</span>
+              </h2>
+              <p className="help">{T('qIdentitiesHelp')}</p>
+              <ChoiceGrid
+                options={IDENTITIES}
+                selected={identities}
+                onToggle={toggle(identities, setIdentities)}
+                name={T('qIdentities')}
+              />
 
-            <section className="card">
-  <h2>
-    <span className="step">5</span> {T('qIdentities')}
-    <span className="optional">{T('optional')}</span>
-  </h2>
-  <p className="help">{T('qIdentitiesHelp')}</p>
-  <ChoiceGrid
-    options={localizedOptions('identities', IDENTITIES)}
-    selected={identities}
-    onToggle={toggle(identities, setIdentities)}
-    name={T('qIdentities')}
-  />
-</section>
-           
+              {residence === 'mckinney' && identities.includes('homeless') && (
+                <div className="sub-question">
+                  <span className="field-label">{T('qHangout')}</span>
+                  <p className="help">{T('qHangoutHelp')}</p>
+                  <input
+                    className="text-input"
+                    value={locationQuery}
+                    onChange={(e) => {
+                      setLocationQuery(e.target.value)
+                      setUserCoords(null) // editing the text invalidates any earlier lookup
+                    }}
+                    placeholder={T('qHangoutPlaceholder')}
+                  />
+                  <div className="actions">
+                    <button
+                      type="button"
+                      className="btn ghost"
+                      onClick={findMyLocation}
+                      disabled={locating || !locationQuery.trim()}
+                    >
+                      {locating ? T('locating') : T('findOnMap')}
+                    </button>
+                  </div>
+                  {userCoords && <p className="small muted">{T('locationFound')}</p>}
+                </div>
+              )}
+            </section>
 
             <section className="card">
               <h2>
-                <span className="step">6</span> {T('qNeeds')}
+                <span className="step">5</span> {T('qNeeds')}
               </h2>
               <p className="help">{T('qNeedsHelp')}</p>
-              <ChoiceGrid
-                options={localizedOptions('needs', NEEDS)}
-                selected={needs}
-                onToggle={toggle(needs, setNeeds)}
-                name={T('qNeeds')}
-              />
+              <ChoiceGrid options={NEEDS} selected={needs} onToggle={toggle(needs, setNeeds)} name={T('qNeeds')} />
             </section>
-          
 
-
-            
             <section className="card">
               <h2>
-                <span className="step">7</span> {T('qNotes')}
+                <span className="step">6</span> {T('qNotes')}
                 <span className="optional">{T('optional')}</span>
               </h2>
               <p className="help">{T('qNotesHelp')}</p>
@@ -333,21 +267,14 @@ const pdfOptions = {
             </section>
 
             <div className="actions">
-              <button
-                type="button"
-                className="btn primary big"
-                onClick={goToResults}
-                disabled={nothingPicked}
-              >
+              <button type="button" className="btn primary big" onClick={goToResults} disabled={nothingPicked}>
                 {T('makeSheet')}
               </button>
               {nothingPicked ? (
                 <p className="hint">{T('needOneBox')}</p>
               ) : (
                 <p className="hint">
-                  {resources.length === 1
-                    ? T('matchedOne')
-                    : T('matchedMany', { n: resources.length })}
+                  {resources.length === 1 ? T('matchedOne') : T('matchedMany', { n: resources.length })}
                 </p>
               )}
             </div>
@@ -359,28 +286,16 @@ const pdfOptions = {
                 {T('goBack')}
               </button>
               <h2 className="result-title">
-                {resources.length === 1
-                  ? T('resultTitleOne')
-                  : T('resultTitleMany', { n: resources.length })}
+                {resources.length === 1 ? T('resultTitleOne') : T('resultTitleMany', { n: resources.length })}
               </h2>
-              {firstName.trim() && (
-                <p className="for-who">{T('sheetFor', { name: firstName.trim() })}</p>
-              )}
+              {firstName.trim() && <p className="for-who">{T('sheetFor', { name: firstName.trim() })}</p>}
             </div>
 
             <div className="actions sticky">
-              <button
-                type="button"
-                className="btn primary big"
-                onClick={() => downloadResourceSheet(pdfOptions)}
-              >
+              <button type="button" className="btn primary big" onClick={() => downloadResourceSheet(pdfOptions)}>
                 {T('downloadPdf')}
               </button>
-              <button
-                type="button"
-                className="btn secondary big"
-                onClick={() => printResourceSheet(pdfOptions)}
-              >
+              <button type="button" className="btn secondary big" onClick={() => printResourceSheet(pdfOptions)}>
                 {T('printNow')}
               </button>
               <button type="button" className="btn ghost" onClick={startOver}>
@@ -388,14 +303,10 @@ const pdfOptions = {
               </button>
             </div>
 
-            {/* Places dropped because of where the person lives. Shown so a
-                filtered sheet never looks like a complete one. */}
             {excluded.length > 0 && (
               <div className="excluded-note">
                 <strong>
-                  {excluded.length === 1
-                    ? T('excludedOne')
-                    : T('excludedMany', { n: excluded.length })}
+                  {excluded.length === 1 ? T('excludedOne') : T('excludedMany', { n: excluded.length })}
                 </strong>{' '}
                 {T('excludedBecause', { where: residenceLabel.toLowerCase() })}
                 <ul>
@@ -431,25 +342,16 @@ const pdfOptions = {
               </ul>
 
               <h3 className="preview-head">{T('placesHead')}</h3>
-              {shownResources.map((r, i) => (
+              {resources.map((r, i) => (
                 <article className="resource" key={r.id}>
                   <div className="resource-cat">{r.category}</div>
                   <h4>
                     {i + 1}. {r.name}
                   </h4>
-                  {distanceLabel(r, lang) &&
-                    distanceLabel(r, lang) !== T('youAreHereShort') && (
-                      <p className="distance">
-                        {T('distanceOf', { dist: distanceLabel(r, lang) })}
-                      </p>
-                    )}
-                  <p>{r.what}</p>
-
-                  {/* A place staff added without Spanish text still prints, but
-                      is flagged so nobody assumes it was translated. */}
-                  {r.untranslated && (
-                    <p className="untranslated">Sin traducción — se muestra en inglés</p>
+                  {distanceLabel(r) && distanceLabel(r) !== T('youAreHereShort') && (
+                    <p className="distance">{T('distanceOf', { dist: distanceLabel(r) })}</p>
                   )}
+                  <p>{r.what}</p>
 
                   {r.say && (
                     <div className="say-box">
@@ -479,7 +381,7 @@ const pdfOptions = {
                       </ul>
                     </>
                   )}
-                  {/* NEW — dynamic requirements by identity */}
+
                   {r.requirementsByTag &&
                     identities
                       .filter((id) => r.requirementsByTag[id])
@@ -488,6 +390,7 @@ const pdfOptions = {
                           {r.requirementsByTag[id]}
                         </p>
                       ))}
+
                   <dl>
                     <dt>{T('labelPhone')}</dt>
                     <dd>
@@ -537,7 +440,7 @@ const pdfOptions = {
       </main>
 
       <footer className="foot">
-        <p>{T('footVerified', { date: verifiedOn(lang) })}</p>
+        <p>{T('footVerified', { date: verifiedOn() })}</p>
         <p className="muted">{T('footPrivacy')}</p>
         {screen !== 'admin' && (
           <p>
