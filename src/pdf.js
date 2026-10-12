@@ -22,6 +22,7 @@
 
 import { jsPDF } from 'jspdf'
 import { t } from './i18n.js'
+import { HOME_BASE } from './resources.js'
 
 const PAGE_W = 612
 const PAGE_H = 792
