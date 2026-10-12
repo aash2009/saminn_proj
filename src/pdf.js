@@ -11,7 +11,7 @@
 // the matching change in layoutCard() -- if drawing uses more height than
 // layout reserved, the next card lands on top of this one. Watch the browser
 // console for:
-//     [resource sheet] "Name" drew 303.0pt but reserved 301.0pt
+//      [resource sheet] "Name" drew 303.0pt but reserved 301.0pt
 //
 // MAP: only drawn when `showMap` is true, which only ever happens for a
 // McKinney resident who checked "homeless" and gave a location we could
@@ -22,7 +22,7 @@
 
 import { jsPDF } from 'jspdf'
 import { t } from './i18n.js'
-import { HOME_BASE, EMERGENCY, verifiedOn} from './resources.js'
+import { HOME_BASE, EMERGENCY, verifiedOn, directionsUrl } from './resources.js'
 
 const PAGE_W = 612
 const PAGE_H = 792
@@ -147,6 +147,12 @@ function layoutCard(doc, resource, number, T_, identities) {
   h += SECTION_GAP + 3
   for (const f of c.facts) h += blockHeight(f.lines, T.fact)
 
+  c.url = directionsUrl(resource)
+  if (c.url) h += 3 + T.link.lead
+
+  c.height = h + (T.title.lead - 4) + 4
+  return c
+}
 
 function drawCard(doc, c, top) {
   const T_ = c.T_
@@ -247,6 +253,12 @@ function drawCard(doc, c, top) {
     }
   }
 
+  if (c.url) {
+    y += 3
+    useFont(doc, T.link)
+    doc.textWithLink(T_('pdfDirections'), x, y, { url: c.url })
+    y += T.link.lead
+  }
 
   doc.setDrawColor(RULE[0], RULE[1], RULE[2])
   doc.setLineWidth(3)
@@ -254,8 +266,6 @@ function drawCard(doc, c, top) {
 
   return y
 }
-
-
 
 export function buildResourceSheet({
   firstName,
