@@ -22,7 +22,7 @@
 
 import { jsPDF } from 'jspdf'
 import { t } from './i18n.js'
-import { HOME_BASE, EMERGENCY, verifiedOn, directionsUrl } from './resources.js'
+import { HOME_BASE, EMERGENCY, verifiedOn} from './resources.js'
 
 const PAGE_W = 612
 const PAGE_H = 792
@@ -147,12 +147,6 @@ function layoutCard(doc, resource, number, T_, identities) {
   h += SECTION_GAP + 3
   for (const f of c.facts) h += blockHeight(f.lines, T.fact)
 
-  c.url = directionsUrl(resource)
-  if (c.url) h += 3 + T.link.lead
-
-  c.height = h + (T.title.lead - 4) + 4
-  return c
-}
 
 function drawCard(doc, c, top) {
   const T_ = c.T_
@@ -253,12 +247,6 @@ function drawCard(doc, c, top) {
     }
   }
 
-  if (c.url) {
-    y += 3
-    useFont(doc, T.link)
-    doc.textWithLink(T_('pdfDirections'), x, y, { url: c.url })
-    y += T.link.lead
-  }
 
   doc.setDrawColor(RULE[0], RULE[1], RULE[2])
   doc.setLineWidth(3)
