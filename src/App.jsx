@@ -13,7 +13,6 @@ import {
 } from './resources.js'
 import { downloadResourceSheet, printResourceSheet } from './pdf.js'
 import { effectiveResources, loadCustom, loadOverrides } from './customResources.js'
-import { geocode } from './geocode.js'
 import { recordNeeds } from './needsStats.js'
 import AdminPanel from './AdminPanel.jsx'
 import { t } from './i18n.js'
@@ -81,10 +80,6 @@ export default function App() {
   const [notes, setNotes] = useState('')
 
   // Only ever used for the McKinney + homeless map.
-  const [locationQuery, setLocationQuery] = useState('')
-  const [userCoords, setUserCoords] = useState(null)
-  const [locating, setLocating] = useState(false)
-
   const [libraryVersion, setLibraryVersion] = useState(0)
 
   const pool = useMemo(() => effectiveResources(loadOverrides(), loadCustom()), [libraryVersion])
@@ -103,9 +98,6 @@ export default function App() {
   const includeSafetyWarning = needs.includes('safety')
   const nothingPicked = needs.length === 0 && identities.length === 0
 
-  // Only true for McKinney residents who checked "homeless" AND successfully
-  // found a location. Everyone else gets no map at all -- not an empty one.
-  const showMap = residence === 'mckinney' && identities.includes('homeless') && userCoords !== null
 
   const pdfOptions = {
     firstName: firstName.trim(),
@@ -113,19 +105,11 @@ export default function App() {
     notes,
     includeSafetyWarning,
     identities,
-    showMap,
-    userCoords,
   }
 
   const toggle = (list, setList) => (id) =>
     setList(list.includes(id) ? list.filter((x) => x !== id) : [...list, id])
 
-  const findMyLocation = async () => {
-    setLocating(true)
-    const coords = await geocode(locationQuery)
-    setUserCoords(coords) // null on failure or empty -- same as never having asked
-    setLocating(false)
-  }
 
   const startOver = () => {
     setFirstName('')
@@ -134,8 +118,6 @@ export default function App() {
     setIdentities([])
     setEstimatedIncome('unknown')
     setNotes('')
-    setLocationQuery('')
-    setUserCoords(null)
     setScreen('form')
     window.scrollTo(0, 0)
   }
@@ -214,33 +196,6 @@ export default function App() {
                 onToggle={toggle(identities, setIdentities)}
                 name={T('qIdentities')}
               />
-
-              {residence === 'mckinney' && identities.includes('homeless') && (
-                <div className="sub-question">
-                  <span className="field-label">{T('qHangout')}</span>
-                  <p className="help">{T('qHangoutHelp')}</p>
-                  <input
-                    className="text-input"
-                    value={locationQuery}
-                    onChange={(e) => {
-                      setLocationQuery(e.target.value)
-                      setUserCoords(null) // editing the text invalidates any earlier lookup
-                    }}
-                    placeholder={T('qHangoutPlaceholder')}
-                  />
-                  <div className="actions">
-                    <button
-                      type="button"
-                      className="btn ghost"
-                      onClick={findMyLocation}
-                      disabled={locating || !locationQuery.trim()}
-                    >
-                      {locating ? T('locating') : T('findOnMap')}
-                    </button>
-                  </div>
-                  {userCoords && <p className="small muted">{T('locationFound')}</p>}
-                </div>
-              )}
             </section>
 
             <section className="card">
